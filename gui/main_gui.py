@@ -1,133 +1,109 @@
-# gui/main_gui.py
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 import requests
+import threading
 
-# تكوين الألوان الفاتحة الهادية
-BG = "#f5f7fb"
-CARD = "#ffffff"
-ACCENT = "#6b9bd1"
-TEXT = "#222222"
+GATEWAY_URL = "http://127.0.0.1:5000"
 
-SERVICES = {
-    "add":    ("http://127.0.0.1:5001", "/add"),
-    "subtract": ("http://127.0.0.1:5002", "/subtract"),
-    "multiply": ("http://127.0.0.1:5003", "/multiply"),
-    "divide":   ("http://127.0.0.1:5004", "/divide"),
-}
+# ألوان هادئة
+BG_COLOR = "#f0f2f5"
+TEXT_COLOR = "#333333"
 
 def call_service(op, a, b):
-    base, endpoint = SERVICES[op]
-    url = base + endpoint
+    url = f"{GATEWAY_URL}/calculate/{op}"
     try:
-        resp = requests.post(url, json={"a": a, "b": b}, timeout=3)
-    except requests.exceptions.RequestException as e:
-        return {"error": "service unreachable", "detail": str(e)}
-    try:
+        resp = requests.post(url, json={"a": a, "b": b}, timeout=5)
         return resp.json()
     except:
-        return {"error": "invalid response", "status_code": resp.status_code, "text": resp.text}
+        return {"error": "Gateway unreachable"}
 
 def on_compute(op):
     a = entry_a.get().strip()
     b = entry_b.get().strip()
-    if a == "" or b == "":
+    if not a or not b:
         messagebox.showwarning("Missing", "Please enter both numbers")
         return
-    result = call_service(op, a, b)
+    
+    # تعطيل الأزرار مؤقتاً
+    for btn in [btn_add, btn_sub, btn_mul, btn_div]:
+        btn.config(state="disabled")
+    
+    lbl_result.config(text="Computing...", fg="orange")
+
+    def compute():
+        result = call_service(op, a, b)
+        
+        # تحديث الواجهة في الخيط الرئيسي
+        root.after(0, lambda: update_result(result))
+
+    threading.Thread(target=compute, daemon=True).start()
+
+def update_result(result):
+    # إعادة تفعيل الأزرار
+    for btn in [btn_add, btn_sub, btn_mul, btn_div]:
+        btn.config(state="normal")
+    
     if "result" in result:
-        lbl_result_var.set(f"Result: {result['result']}")
+        lbl_result.config(text=f"Result: {result['result']}", fg="green")
     else:
-        err = result.get("error", "Unknown error")
-        detail = result.get("detail", "")
-        lbl_result_var.set(f"Error: {err}")
-        if detail:
-            print("detail:", detail)
+        lbl_result.config(text=f"Error: {result.get('error', 'Unknown')}", fg="red")
 
-def check_services():
-    statuses = {}
-    for k, (base, _) in SERVICES.items():
-        try:
-            r = requests.get(base + "/health", timeout=1)
-            statuses[k] = (r.status_code == 200)
-        except:
-            statuses[k] = False
-    # تحديث الأيقونات
-    for k, val in statuses.items():
-        lbl = status_labels[k]
-        lbl.config(text="●" if val else "○", foreground="green" if val else "gray")
-    root.after(2000, check_services)
-
-# UI
+# إنشاء النافذة
 root = tk.Tk()
-root.title("Distributed Calculator — حاسبة موزعة")
-root.geometry("420x320")
-root.configure(bg=BG)
+root.title("Distributed Calculator - نظام موزع")
+root.geometry("450x400")  # زيادة العرض والطول
+root.configure(bg=BG_COLOR)
+root.resizable(False, False)
 
-frame = ttk.Frame(root, padding=12)
-frame.pack(fill="both", expand=True)
+# العنوان
+title_label = tk.Label(root, text=" Distributed Calculator", 
+                      bg=BG_COLOR, fg=TEXT_COLOR, font=("Arial", 16, "bold"))
+title_label.pack(pady=15)
 
-style = ttk.Style()
-style.theme_use("default")
 
-# Cards-like area
-card = tk.Frame(frame, bg=CARD, bd=0, relief="flat")
-card.pack(fill="both", expand=True, padx=6, pady=6)
+# إطار المدخلات
+input_frame = tk.Frame(root, bg=BG_COLOR)
+input_frame.pack(pady=15)
 
-title = tk.Label(card, text="Distributed Calculator", bg=CARD, fg=TEXT, font=("Segoe UI", 14, "bold"))
-title.pack(pady=(10, 2))
+tk.Label(input_frame, text="Number A:", bg=BG_COLOR, fg=TEXT_COLOR, 
+         font=("Arial", 11)).grid(row=0, column=0, padx=8, pady=8)
+entry_a = tk.Entry(input_frame, width=18, font=("Arial", 12), justify='center')
+entry_a.grid(row=0, column=1, padx=8, pady=8)
 
-subtitle = tk.Label(card, text="Light & calm interface — كل خدمة مستقلة", bg=CARD, fg=TEXT, font=("Segoe UI", 9))
-subtitle.pack(pady=(0, 10))
+tk.Label(input_frame, text="Number B:", bg=BG_COLOR, fg=TEXT_COLOR,
+         font=("Arial", 11)).grid(row=1, column=0, padx=8, pady=8)
+entry_b = tk.Entry(input_frame, width=18, font=("Arial", 12), justify='center')
+entry_b.grid(row=1, column=1, padx=8, pady=8)
 
-# inputs
-inp_frame = tk.Frame(card, bg=CARD)
-inp_frame.pack(pady=8)
+# إطار الأزرار
+button_frame = tk.Frame(root, bg=BG_COLOR)
+button_frame.pack(pady=20)
 
-tk.Label(inp_frame, text="A:", bg=CARD, fg=TEXT).grid(row=0, column=0, sticky="e", padx=6, pady=6)
-entry_a = ttk.Entry(inp_frame, width=20)
-entry_a.grid(row=0, column=1, padx=6, pady=6)
+# أزرار أكبر وأوضح
+btn_add = tk.Button(button_frame, text="➕ ", width=10, height=2,
+                   command=lambda: on_compute("add"), bg="#2196F3", fg="white", 
+                   font=("Arial", 11, "bold"), cursor="hand2")
+btn_add.grid(row=0, column=0, padx=6, pady=5)
 
-tk.Label(inp_frame, text="B:", bg=CARD, fg=TEXT).grid(row=1, column=0, sticky="e", padx=6, pady=6)
-entry_b = ttk.Entry(inp_frame, width=20)
-entry_b.grid(row=1, column=1, padx=6, pady=6)
+btn_sub = tk.Button(button_frame, text="➖ ", width=10, height=2,
+                   command=lambda: on_compute("subtract"), bg="#FF9800", fg="white", 
+                   font=("Arial", 11, "bold"), cursor="hand2")
+btn_sub.grid(row=0, column=1, padx=6, pady=5)
 
-# buttons
-btn_frame = tk.Frame(card, bg=CARD)
-btn_frame.pack(pady=6)
+btn_mul = tk.Button(button_frame, text="✖️ ", width=10, height=2,
+                   command=lambda: on_compute("multiply"), bg="#9C27B0", fg="white", 
+                   font=("Arial", 11, "bold"), cursor="hand2")
+btn_mul.grid(row=0, column=2, padx=6, pady=5)
 
-btn_add = ttk.Button(btn_frame, text="A + B", command=lambda: on_compute("add"))
-btn_add.grid(row=0, column=0, padx=6, pady=6)
+btn_div = tk.Button(button_frame, text="➗ ", width=10, height=2,
+                   command=lambda: on_compute("divide"), bg="#F44336", fg="white", 
+                   font=("Arial", 11, "bold"), cursor="hand2")
+btn_div.grid(row=0, column=3, padx=6, pady=5)
 
-btn_sub = ttk.Button(btn_frame, text="A - B", command=lambda: on_compute("subtract"))
-btn_sub.grid(row=0, column=1, padx=6, pady=6)
+# نتيجة
+lbl_result = tk.Label(root, text="Result: —", bg=BG_COLOR, fg=TEXT_COLOR, 
+                     font=("Arial", 14, "bold"), pady=10)
+lbl_result.pack(pady=20)
 
-btn_mul = ttk.Button(btn_frame, text="A × B", command=lambda: on_compute("multiply"))
-btn_mul.grid(row=0, column=2, padx=6, pady=6)
-
-btn_div = ttk.Button(btn_frame, text="A ÷ B", command=lambda: on_compute("divide"))
-btn_div.grid(row=0, column=3, padx=6, pady=6)
-
-# result
-lbl_result_var = tk.StringVar(value="Result: —")
-lbl_result = tk.Label(card, textvariable=lbl_result_var, bg=CARD, fg=TEXT, font=("Segoe UI", 12))
-lbl_result.pack(pady=10)
-
-# service status
-status_frame = tk.Frame(card, bg=CARD)
-status_frame.pack(pady=(6, 12))
-
-tk.Label(status_frame, text="Services:", bg=CARD, fg=TEXT).grid(row=0, column=0, sticky="w", padx=6)
-status_labels = {}
-col = 1
-for key in SERVICES.keys():
-    lbl = tk.Label(status_frame, text="○", bg=CARD, fg="gray", font=("Segoe UI", 10, "bold"))
-    lbl.grid(row=0, column=col, padx=8)
-    tk.Label(status_frame, text=key, bg=CARD, fg=TEXT).grid(row=1, column=col, padx=8)
-    status_labels[key] = lbl
-    col += 1
-
-# start polling service health
-root.after(500, check_services)
 
 root.mainloop()
